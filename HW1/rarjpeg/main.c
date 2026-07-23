@@ -11,10 +11,10 @@
 long get_file_size(FILE* file);
 void check_arguments(int argc); 
 void on_error(int error_code, char* message);
+void dump_hex(const void* data, size_t size);
 
 struct CentralDirectoryFileHeader
 {
-    uint32_t signature;
     uint16_t versionMadeBy;
     uint16_t versionToExtract;
     uint16_t generalPurposeBitFlag;
@@ -46,6 +46,7 @@ struct EOCD
 
 } __attribute__((packed));
 
+
 typedef enum { ZIP_STORED = 0, ZIP_DEFLATED = 8 } method_t;
 
 typedef struct zipmemb_t zipmemb_t;
@@ -57,9 +58,8 @@ int main(int argc, char *argv[]) {
     FILE* file = fopen(argv[1], "rb");
     if(!file) { on_error(FAILD_OPEN_FILE, argv[1]); }
 
-    long file_size = get_file_size(file);
-    int has_signature = 1;
-    long int file_offset = 0;
+    size_t file_size = get_file_size(file);
+    size_t eocd_offset = 0;
 
 
     for (size_t offset = file_size - sizeof(struct EOCD); offset != 0; --offset)
@@ -71,16 +71,15 @@ int main(int argc, char *argv[]) {
 
         if (0x06054b50 == signature)
         {
-            file_offset = offset;
-            has_signature = 0;
+            eocd_offset = offset;
             break;
         }
     }   
 
-    printf("offset: %ld.\n", file_offset);
+    printf("eocd_offset: %ld.\n", eocd_offset);
     printf("file_size: %ld.\n", file_size);
 
-    if (has_signature == 0){
+    if (eocd_offset != 0){
         printf("A ZIP archive is contained at the end of the image file.\n");
     } else {
         printf("The image file contains no attachments.\n");
@@ -90,52 +89,41 @@ int main(int argc, char *argv[]) {
 
     struct EOCD eocd;
     fread((char *) &eocd, sizeof(eocd), 1, file);
+    size_t cd_offset = eocd_offset - eocd.sizeOfCentralDirectory;
 
-    printf("Comment: %d.\n", eocd.commentLength);
-    printf("num: %d.\n", eocd.numberCentralDirectoryRecord);
     printf("total: %d.\n", eocd.totalCentralDirectoryRecord);
-    printf("size of CD: %d.\n", eocd.sizeOfCentralDirectory);
-    printf("offset: %d.\n", eocd.centralDirectoryOffset);
+    printf("Files: \n");
 
-    if (eocd.commentLength)
+    for (size_t offset = cd_offset; offset < eocd_offset; ++offset)
     {
-        uint8_t comment[eocd.commentLength + 1];
-        uint8_t *comment_ptr = comment;
+        uint32_t signature = 0;
 
-        fread((char *) comment_ptr, eocd.commentLength, SEEK_CUR, file);
+        fseek(file, offset, SEEK_SET);
+        fread((char *) &signature, sizeof(signature), 1, file);
 
-        comment_ptr[eocd.commentLength] = 0;
-        printf("Comment: %s.\n", comment_ptr);
-
-    }
-
-    fseek(file, eocd.centralDirectoryOffset, SEEK_SET);
-
-    for (uint16_t i = 0; i < eocd.numberCentralDirectoryRecord; ++i)
-    {
-        struct CentralDirectoryFileHeader cdfh;
-
-        fread((char *) &cdfh, sizeof(cdfh), 1, file);
-        printf("cdfh.signature: %d .\n", cdfh.signature);  
-
-        // if (0x504b0102 != cdfh.signature) { fclose(file); on_error(WRONG_CD_SIGNATURE, ""); }
-        if (0x02014b50 != cdfh.signature) { fclose(file); on_error(WRONG_CD_SIGNATURE, ""); }
-
-        if (cdfh.filenameLength)
+        if (0x02014b50 == signature)
         {
-            uint8_t file_name[cdfh.filenameLength + 1];
-            uint8_t *file_name_ptr = file_name;
-            fread((char *) file_name_ptr, cdfh.filenameLength, 1, file);
-    
-            file_name_ptr[cdfh.filenameLength] = 0;  
-            printf("File: %s .\n", file_name_ptr);  
+           
+            struct CentralDirectoryFileHeader fileheader;
+            fread((char *) &fileheader, sizeof(fileheader), 1, file);
+
+            if (fileheader.filenameLength)
+            {
+                uint8_t file_name[fileheader.filenameLength + 1];
+                uint8_t *file_name_ptr = file_name;
+                fread((char *) file_name_ptr, fileheader.filenameLength, 1, file);
+        
+                file_name_ptr[fileheader.filenameLength] = 0;  
+                printf("File: %s\n", file_name_ptr);  
+            }
         }
-    }
+    }   
 
     fclose(file);
 
     return EXIT_SUCCESS;
 }
+
 
 long get_file_size(FILE* file)
 {
@@ -177,3 +165,5 @@ void on_error(int error_code, char* message) {
     }
     exit(EXIT_FAILURE);
 }
+
+#include <stdio.h>
