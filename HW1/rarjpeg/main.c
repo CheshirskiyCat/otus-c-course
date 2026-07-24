@@ -8,8 +8,7 @@
 #define EMPTY_FILE 3
 #define WRONG_CD_SIGNATURE 4
 
-long get_file_size(FILE* file);
-void check_arguments(int argc); 
+int check_arguments(int argc); 
 void on_error(int error_code, char* message);
 void dump_hex(const void* data, size_t size);
 
@@ -53,12 +52,21 @@ typedef struct zipmemb_t zipmemb_t;
 
 int main(int argc, char *argv[]) {
 
-    check_arguments(argc);
+    int check_result = check_arguments(argc);
+    if (check_result == EXIT_FAILURE) {
+        return EXIT_FAILURE;
+    }
 
     FILE* file = fopen(argv[1], "rb");
-    if(!file) { on_error(FAILD_OPEN_FILE, argv[1]); }
+    if(!file) { on_error(FAILD_OPEN_FILE, argv[1]); return EXIT_FAILURE; }
 
-    size_t file_size = get_file_size(file);
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        on_error(EMPTY_FILE, "");
+        return EXIT_FAILURE;
+    }
+    size_t file_size = ftell(file);
+
     size_t eocd_offset = 0;
 
 
@@ -124,24 +132,16 @@ int main(int argc, char *argv[]) {
     return EXIT_SUCCESS;
 }
 
-
-long get_file_size(FILE* file)
-{
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        on_error(EMPTY_FILE, "");
-    }
-    return ftell(file);
-}
-
-void check_arguments(int argc)
+int check_arguments(int argc)
 {
     char* empty_message = "";
     
     if(argc != 2) 
     { 
         on_error(WRONG_ARGUMENT, empty_message); 
+        return 1;
     }
+    return 0;
 }
 
 void on_error(int error_code, char* message) {
@@ -163,7 +163,4 @@ void on_error(int error_code, char* message) {
             perror("Error: unknown");
             break;
     }
-    exit(EXIT_FAILURE);
 }
-
-#include <stdio.h>
